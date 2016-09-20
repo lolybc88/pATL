@@ -1,0 +1,65 @@
+-- @atlcompiler atlParallel
+-- @path MM=/IMDb_EcoreModProj/model/movies.ecore
+-- @path MM1=/IMDb_EcoreModProj/model/movies.ecore
+
+module FindCouplesIMDb;
+create OUT : MM1 from IN : MM;
+
+helper def : coauthors(p1:MM!Person) : Set(MM!Person) = p1.movies->collect(m | m.persons)->flatten();
+
+helper def : areCouple(p1:MM!Person, p2:MM!Person) : Boolean = (p1.movies->asSet()->intersection(p2.movies->asSet()))->size()>3;
+
+rule movie {
+	from
+		m1 : MM!Movie
+	to
+		m2 : MM1!Movie (
+			title <- m1.title,
+			rating <- m1.rating,
+			type <- m1.type,
+			year <- m1.year,
+			persons <- m1.persons
+		)
+}
+
+rule actor {
+	from
+		p1 : MM!Actor
+	to
+		p2 : MM1!Actor (
+			name <- p1.name,
+			movies <- p1.movies
+		)
+	do {
+		for (coauthor in thisModule.coauthors(p1)){
+			if (thisModule.areCouple(p1, coauthor) and p1.name < coauthor.name){
+				thisModule.createCouple(p1, coauthor);
+			}
+		}
+	}
+}
+
+rule actress {
+	from
+		p1 : MM!Actress
+	to
+		p2 : MM1!Actress (
+			name <- p1.name,
+			movies <- p1.movies
+		)
+	do {
+		for (coauthor in thisModule.coauthors(p1)){
+			if (thisModule.areCouple(p1, coauthor)){
+				thisModule.createCouple(p1, coauthor);
+			}
+		}
+	}
+}
+
+rule createCouple(person1 : MM!Person, person2 : MM!Person) {
+	to 
+		c : MM1!Couple (
+			p1 <- person1,
+			p2 <- person2
+		)
+}

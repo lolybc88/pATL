@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.0"?>
+<plugin>
+
+   	<!-- extension point: perspective -->
+   <extension
+         point="org.eclipse.ui.startup">
+      <startup
+            class="org.eclipse.m2m.atl.adt.ui.startup.Startup">
+      </startup>
+   </extension>
+	<extension point="org.eclipse.ui.perspectives">
+		<perspective
+        	icon="icons/atl_logo.gif"
+	        class="org.eclipse.m2m.atl.adt.ui.perspective.AtlPerspective"
+	        name="ATL"
+	        id="org.eclipse.m2m.atl.adt.ui.atlPerspective">
+   		</perspective>
+	</extension>
+     <extension
+         point="org.eclipse.ui.newWizards">
+      <category
+            name="ATL"
+            id="atlWizard">
+      </category>
+      <wizard
+            category="atlWizard"
+            class="org.eclipse.m2m.atl.adt.ui.wizard.atlproject.AtlProjectCreator"
+            finalPerspective="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            icon="icons/new_atl_project.gif"
+            id="atlProjectWizard"
+            name="ATL Project"
+            preferredPerspectives="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            project="true">
+         <description>
+            Create an ATL transformation project
+         </description>
+      </wizard>
+      <wizard
+            category="atlWizard"
+            class="org.eclipse.m2m.atl.adt.ui.wizard.atlplugin.AtlPluginCreator"
+            finalPerspective="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            icon="icons/new_atl_plugin.gif"
+            id="atlPluginWizard"
+            name="ATL Plugin"
+            preferredPerspectives="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            project="true">
+         <description>
+            Create an ATL transformation plugin, with a launcher class
+         </description>
+      </wizard>
+      <wizard
+            name="ATL File"
+            icon="icons/new_atl_file.gif"
+            category="atlWizard"
+            class="org.eclipse.m2m.atl.adt.ui.wizard.atlfile.AtlFileWizard"
+            preferredPerspectives="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            finalPerspective="org.eclipse.m2m.atl.adt.ui.atlPerspective"
+            project="false"
+            id="atlFileWizard">
+         <description>
+            Create an ATL transformation file
+         </description>
+      </wizard>
+   </extension>
+   
+   <extension
+         point="org.eclipse.ui.menus">
+      <menuContribution
+            locationURI="popup:org.eclipse.ui.popup.any">
+         <command
+               commandId="org.eclipse.m2m.atl.adt.ui.registerMetamodel"
+               icon="icons/atl_logo.gif"
+               id="registerMetamodel"
+               label="Register Metamodel"
+               style="push">
+			<visibleWhen checkEnabled="false">
+	    		<with variable="activeMenuSelection">
+			       <count value="+">
+       			   </count>
+       			   <iterate>
+          				<and>
+             				<adapt type="org.eclipse.core.resources.IFile">
+			                	<test property="org.eclipse.core.resources.name" value="*.ecore">
+                				</test>
+             				</adapt>
+             				<with variable="activeWorkbenchWindow.activePerspective">
+                				<equals value="org.eclipse.m2m.atl.adt.ui.atlPerspective">
+                				</equals>
+             				</with>
+          				</and>
+       			   </iterate>
+    	 	    </with>
+		 </visibleWhen>
+         </command>
+         <command
+               commandId="org.eclipse.m2m.atl.adt.ui.toggleATLNature"
+               icon="icons/atl_logo.gif"
+               id="addATLNature"
+               label="Convert Project to ATL project"
+               style="push">
+            <visibleWhen
+                  checkEnabled="false">
+               <with
+                     variable="activeMenuSelection">
+                  <count
+                        value="+">
+                  </count>
+                  <iterate>
+                     <and>
+                        <adapt
+                              type="org.eclipse.core.resources.IProject">
+                           <and>
+                              <not>
+                                 <test
+                                       property="org.eclipse.core.resources.projectNature"
+                                       value="org.eclipse.m2m.atl.adt.builder.atlNature">
+                                 </test>
+                              </not>
+                              <test
+                                    property="org.eclipse.core.resources.open"
+                                    value="true">
+                              </test>
+                           </and>
+                        </adapt>
+                        <with
+                              variable="activeWorkbenchWindow.activePerspective">
+                           <equals
+                                 value="org.eclipse.m2m.atl.adt.ui.atlPerspective">
+                           </equals>
+                        </with>
+                     </and>
+                  </iterate>
+               </with>
+            </visibleWhen>
+         </command>
+         <command
+               commandId="org.eclipse.m2m.atl.adt.ui.toggleATLNature"
+               icon="icons/atl_logo.gif"
+               id="removeATLNature"
+               label="Remove ATL Nature"
+               style="push">
+            <visibleWhen
+                  checkEnabled="false">
+               <with
+                     variable="activeMenuSelection">
+                  <count
+                        value="+">
+                  </count>
+                  <iterate>
+                     <adapt
+                           type="org.eclipse.core.resources.IProject">
+                        <and>
+                           <test
+                                 property="org.eclipse.core.resources.projectNature"
+                                 value="org.eclipse.m2m.atl.adt.builder.atlNature">
+                           </test>
+                           <test
+                                 property="org.eclipse.core.resources.open"
+                                 value="true">
+                           </test>
+                        </and>
+                     </adapt>
+                  </iterate>
+               </with>
+            </visibleWhen>
+ 
+         </command>
+      </menuContribution>
+   </extension>
+   
+   <extension
+         point="org.eclipse.ui.commands">
+      <command
+            categoryId="atlCategory"
+            id="org.eclipse.m2m.atl.adt.ui.registerMetamodel"
+            name="Register Metamodel">
+      </command>
+      <command
+            categoryId="atlCategory"
+            id="org.eclipse.m2m.atl.adt.ui.toggleATLNature"
+            name="Add/Remove ATL Nature">
+      </command>
+   </extension>
+   <extension
+         point="org.eclipse.ui.handlers">
+      <handler
+            class="org.eclipse.m2m.atl.adt.ui.handlers.RegisterMetamodel"
+            commandId="org.eclipse.m2m.atl.adt.ui.registerMetamodel">
+      </handler>
+      <handler
+            class="org.eclipse.m2m.atl.adt.ui.handlers.ToggleATLNature"
+            commandId="org.eclipse.m2m.atl.adt.ui.toggleATLNature">
+      </handler>
+   </extension>
+</plugin>

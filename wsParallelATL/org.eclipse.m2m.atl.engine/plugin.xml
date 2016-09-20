@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.2"?>
+<plugin>
+   <extension-point id="org.eclipse.m2m.atl.engine.atlcompiler" name="ATLCompiler" schema="schema/atlcompiler.exsd"/>
+   <extension
+         point="org.eclipse.m2m.atl.engine.atlcompiler">
+      <atlcompiler
+            class="org.eclipse.m2m.atl.engine.compiler.atl2006.Atl2006Compiler"
+            name="atl2006">
+      </atlcompiler>
+       <atlcompiler
+            class="org.eclipse.m2m.atl.engine.compiler.Atl2004Compiler"
+            name="atl2004">
+      </atlcompiler>
+      <atlcompiler
+            class="org.eclipse.m2m.atl.engine.compiler.atl2010.Atl2010InPlace"
+            name="atl2010">
+      </atlcompiler>
+   </extension>
+    <extension
+       id="problem"
+       name="ATL Problem"
+       point="org.eclipse.core.resources.markers">
+    <super
+          type="org.eclipse.core.resources.problemmarker">
+    </super>
+    <persistent
+          value="true">
+    </persistent>
+ </extension>
+    <extension
+          point="org.eclipse.m2m.atl.core.injector">
+       <injector
+             class="org.eclipse.m2m.atl.engine.parser.AtlParser"
+             name="ATL">
+       </injector>
+    </extension>
+    <extension
+          point="org.eclipse.m2m.atl.core.extractor">
+       <extractor
+             class="org.eclipse.m2m.atl.engine.parser.AtlParser"
+             name="ATL">
+       </extractor>
+    </extension>
+    <extension
+          point="org.eclipse.m2m.atl.engine.emfvm.typeextension">
+       <typeextension
+             class="org.eclipse.m2m.atl.engine.asm.ASMEmitter"
+             name="ASMEmitter">
+       </typeextension>
+    </extension>
+    <extension
+          point="org.eclipse.m2m.atl.engine.emfvm.libextension">
+       <libextension
+             class="org.eclipse.m2m.atl.engine.asm.lib.ASMString"
+             name="ASMString">
+       </libextension>
+    </extension>
+</plugin>

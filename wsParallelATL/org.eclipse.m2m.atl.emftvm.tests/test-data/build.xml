@@ -1,0 +1,16 @@
+<project name="org.eclipse.m2m.atl.emftvm.tests/test-data" default="clean">
+
+	<target name="clean">
+		<delete>
+			<fileset dir=".">
+	    		<exclude name="**/build.xml"/>
+	    		<exclude name="**/*.atl"/>
+				<exclude name="**/*.xmi"/>
+				<exclude name="**/*.ecore"/>
+				<exclude name="**/*.ecorediag"/>
+			</fileset>
+		</delete>
+		<eclipse.refreshLocal resource="${ant.project.name}"/>
+	</target>
+	
+</project>

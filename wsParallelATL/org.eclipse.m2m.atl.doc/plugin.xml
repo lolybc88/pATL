@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.0"?>
+<plugin>
+
+  <!-- ====================================================================== -->
+  <!-- Define primary TOC                                                     -->
+  <!-- ====================================================================== -->
+  
+  <extension point="org.eclipse.help.toc">
+    <toc file="toc.xml" primary="true"/>
+    <toc
+          file="guide/concepts/ATL Concepts-toc.xml"
+          primary="false">
+    </toc>
+    <toc
+          file="guide/user/ATL User Guide-toc.xml"
+          primary="false">
+    </toc>
+    <toc
+          file="guide/developer/ATL Developer Guide-toc.xml"
+          primary="false">
+    </toc>
+    <toc
+          file="guide/tutorials/ATL Tutorials-toc.xml"
+          primary="false">
+    </toc>
+  </extension>
+
+<!-- ============================================================================= -->
+<!-- Define Javadoc locations                                                      -->
+<!-- ============================================================================= -->
+   <extension point="org.eclipse.pde.core.javadoc">
+       <javadoc path="doc.zip!/references/javadoc" archive="true">
+       		<plugin id="org.eclipse.m2m.atl.common"/>
+       </javadoc>
+   </extension>
+
+
+
+</plugin>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fileset-config file-format-version="1.2.0" simple-config="true">
+    <local-check-config name="ATL" location="/org.eclipse.m2m.atl/codeStyle/ATLCheckstyleConfiguration.xml" type="project" description="">
+        <additional-data name="protect-config-file" value="false"/>
+    </local-check-config>
+    <fileset name="tous" enabled="true" check-config-name="ATL" local="true">
+        <file-match-pattern match-pattern="." include-pattern="true"/>
+    </fileset>
+    <filter name="FilesFromPackage" enabled="false">
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/actions"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/corext"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/editor"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/outline"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/preferences"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/properties"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/text/hover"/>
+        <filter-data value="src/org/eclipse/m2m/atl/adt/ui/viewsupport"/>
+    </filter>
+</fileset-config>

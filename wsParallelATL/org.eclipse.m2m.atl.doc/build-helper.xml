@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="test.atl.doc" default="all">
+	<description>
+		Generates Eclipse help content from ATL wiki entries (now splitted into several wiki pages). 
+
+		NOTES:
+		- This script uses the 'antcontrib' library, for Ant 'For' loops; it is a standalone library.
+			This library can be found here: http://sourceforge.net/projects/ant-contrib/files/
+		- For further information, please refer to the README file enclosed
+    </description>
+
+	<taskdef resource="net/sf/antcontrib/antlib.xml" />
+
+	<path id="tasks.classpath">
+		<pathelement location="../org.eclipse.mylyn.help.ui/@dot" />
+		<pathelement location="../org.eclipse.mylyn.help.ui/bin" />
+	</path>
+
+	<path id="wikitext.tasks.classpath">
+		<pathelement location="../org.eclipse.mylyn.wikitext.core/@dot" />
+		<pathelement location="../org.eclipse.mylyn.wikitext.core/bin" />
+		<pathelement location="../org.eclipse.mylyn.wikitext.mediawiki.core/@dot" />
+		<pathelement location="../org.eclipse.mylyn.wikitext.mediawiki.core/bin" />
+	</path>
+
+	<taskdef classpathref="tasks.classpath" resource="org/eclipse/mylyn/internal/help/ui/anttask/tasks.properties" />
+	<taskdef classpathref="wikitext.tasks.classpath" resource="org/eclipse/mylyn/wikitext/core/util/anttask/tasks.properties" />
+
+	<property name="root" value="ATL" />
+	<property name="wiki.concepts.page.name" value="${root}/Concepts"/>
+	<property name="wiki.developer.page.name" value="${root}/Developer_Guide"/>
+	<property name="wiki.tutorials.page.name" value="${root}/Tutorials"/>
+	<property name="wiki.tutorials.i" value="1,2"/>
+	<property name="wiki.tutorial1.page.name" value="${root}/Tutorials"/>
+	<property name="wiki.tutorial2.page.name" value="${root}/Tutorials_-_Create_a_simple_ATL_transformation" />
+	<property name="wiki.user.page.name" value="${root}/User_Guide"/>
+	<property name="wiki.user.i" value="1,2,3,4,5"/>
+	<property name="wiki.user1.page.name" value="${root}/User_Guide_-_Introduction" />
+	<property name="wiki.user2.page.name" value="${root}/User_Guide_-_Installation" />
+	<property name="wiki.user3.page.name" value="${root}/User_Guide_-_Overview_of_the_Atlas_Transformation_Language" />
+	<property name="wiki.user4.page.name" value="${root}/User_Guide_-_The_ATL_Language" />
+	<property name="wiki.user5.page.name" value="${root}/User_Guide_-_The_ATL_Tools" />
+
+	<property name="wikiurl" value="http://wiki.eclipse.org" />
+	<property name="imageFolder" value="images" />
+
+	<target name="all" description="Generate Eclipse help content for the ATL Documentation">
+		<eclipse-wiki-to-help 
+			help.doc.url.html="${wiki.concepts.page.name}" 
+			help.doc.filenameNoExtension="ATL Concepts" 
+			targetfolder="guide/concepts" />
+		<eclipse-wiki-to-help 
+			help.doc.url.html="${wiki.developer.page.name}" 
+			help.doc.filenameNoExtension="ATL Developer Guide" 
+			targetfolder="guide/developer" />
+		<eclipse-wiki-to-help 
+			help.doc.url.html="${wiki.tutorials.page.name}" 
+			wiki.pages="${wiki.tutorial@{i}.page.name}" 
+			for.i="${wiki.tutorials.i}" 
+			help.doc.filenameNoExtension="ATL Tutorials" 
+			targetfolder="guide/tutorials" 
+			atl.splittag="true" />
+		<eclipse-wiki-to-help 
+			help.doc.url.html="${wiki.user.page.name}" 
+			wiki.pages="${wiki.user@{i}.page.name}" 
+			for.i="${wiki.user.i}" 
+			help.doc.filenameNoExtension="ATL User Guide" 
+			targetfolder="guide/user" 
+			atl.splittag="true" />
+	</target>
+
+	<macrodef name="eclipse-wiki-to-help">
+		<attribute name="help.doc.url.html" />
+		<attribute name="help.doc.filenameNoExtension" />
+		<attribute name="wiki.url.base" default="${wikiurl}/${root}" />
+		<attribute name="targetFolder" />
+		<attribute name="for.i" default="1" />
+		<attribute name="wiki.pages" default="@{help.doc.url.html}" />
+		<attribute name="doc.url.base" default="${wikiurl}" />
+		<attribute name="multipleOutputFiles" default="true" />
+		<attribute name="atl.splittag" default="false" />
+		<sequential>
+			<mkdir dir="tmp" />
+			<for list="@{for.i}" param="i">
+				<sequential>
+					<get dest="tmp/help.doc.html" src="${wikiurl}/@{wiki.pages}" />
+					<copy todir="tmp">
+						<fileset dir="images" />
+					</copy>
+					<mediawiki-fetch-images src="tmp/help.doc.html" dest="tmp" base="${wikiurl}" />
+					<get dest="tmp/help.doc@{i}.xml" src="${wikiurl}/Special:Export/@{wiki.pages}" />
+					<xslt style="extract-markup.xsl" in="tmp/help.doc@{i}.xml" out="tmp/_@{help.doc.filenameNoExtension}@{i}.mediawiki" />
+					<echo append="true" file="tmp/_@{help.doc.filenameNoExtension}@{i}.mediawiki">&#10;</echo>
+					<concat destfile="tmp/@{help.doc.filenameNoExtension}.mediawiki" fixlastline="yes" append="true">
+						<fileset dir="tmp" includes="*@{i}.mediawiki" />
+					</concat>
+				</sequential>
+			</for>
+			<if>
+				<equals arg1="@{atl.splittag}" arg2="true" />
+				<then>
+					<echo append="true" file="tmp/@{help.doc.filenameNoExtension}.mediawiki" message="___ATLSPLIT___" />
+				</then>
+			</if>
+			<delete failonerror="false">
+				<fileset dir="tmp" includes="_*.mediawiki" />
+			</delete>
+			<echo append="true" file="tmp/@{help.doc.filenameNoExtension}.mediawiki">
+
+= Updating This Document =
+
+This document is maintained in a collaborative wiki.  If you wish to update or modify this document please visit 
+@{doc.url.base}/@{help.doc.url.html}
+			</echo>
+
+			<wikitext-to-eclipse-help
+					markupLanguage="org.eclipse.mylyn.wikitext.mediawiki.core.MediaWikiLanguage" 
+					multipleOutputFiles="@{multipleOutputFiles}" 
+					navigationImages="true" 
+					helpPrefix="@{targetFolder}" 
+					internallinkpattern="@{wiki.url.base}/{0}" 
+					validate="true" 
+					failonvalidationerror="true" 
+					prependImagePrefix="${imageFolder}" 
+					formatoutput="true">
+				<fileset dir="tmp" includes="**/*.mediawiki" />
+				<stylesheet url="book.css" />
+			</wikitext-to-eclipse-help>
+
+			<mkdir dir="@{targetFolder}/${imageFolder}" />
+			<copy todir="@{targetFolder}/${imageFolder}" overwrite="true">
+				<fileset dir="tmp">
+					<include name="*.gif" />
+					<include name="*.PNG" />
+					<include name="*.png" />
+					<include name="*.JPG" />
+					<include name="*.jpg" />
+				</fileset>
+			</copy>
+			<replace dir="tmp" includes="*.html" token=" ==" value=" =" />
+			<replace dir="tmp" includes="*.html" token="== " value="= " />
+			<copy todir="@{targetFolder}" overwrite="true">
+				<fileset dir="tmp">
+					<include name="*.html" />
+					<include name="*toc.xml" />
+					<exclude name="help.doc.html" />
+				</fileset>
+			</copy>
+			<antcall target="test" />
+			<delete includeemptydirs="true" failonerror="false">
+				<fileset dir="tmp" />
+			</delete>
+		</sequential>
+
+	</macrodef>
+
+
+	<target name="test" description="verify that all of the HTML files are well-formed XML">
+		<echo level="info">
+Validating help content XML and HTML files: The Eclipse help system expects well-formed XML
+			
+If validation fails it is because either:
+			
+* the html source code is poorly formed, or
+* the WikiText MediaWiki parser has a bug
+			
+Problems with html source are usually caused by improper use of HTML markup in the MediaWiki source,
+or inadvertently starting a line with a space character (in MediaWiki this starts a preformatted block)
+		</echo>
+
+		<!-- 
+		Don't bother with DTD validation: we only care if the files are well-formed.
+		We therefore provide an empty DTD 
+		-->
+		<echo file="tmp/__empty.dtd" message="" />
+		<xmlvalidate lenient="true">
+			<fileset dir="guide">
+				<include name="**/*.xml" />
+			</fileset>
+			<fileset dir="guide">
+				<include name="**/*.html" />
+			</fileset>
+			<dtd publicid="-//W3C//DTD XHTML 1.0 Transitional//EN" location="${basedir}/tmp/__empty.dtd" />
+		</xmlvalidate>
+	</target>
+</project>

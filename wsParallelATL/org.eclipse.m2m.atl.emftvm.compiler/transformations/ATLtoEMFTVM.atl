@@ -1,0 +1,1155 @@
+-- @atlcompiler emftvm
+-- @nsURI EMFTVM=http://www.eclipse.org/m2m/atl/2011/EMFTVM
+-- @path ATL=/org.eclipse.m2m.atl.common/src/org/eclipse/m2m/atl/common/resources/ATL.ecore
+-- @path Problem=/org.eclipse.m2m.atl.common/src/org/eclipse/m2m/atl/common/resources/Problem.ecore
+-- Transforms ATL modules into EMFTVM modules
+-- $Id: ATLtoEMFTVM.atl,v 1.12 2012/04/08 14:34:47 dwagelaar Exp $
+module ATLtoEMFTVM;
+
+create OUT : EMFTVM, PBS : Problem from IN : ATL;
+
+uses OCLtoEMFTVM;
+
+-- ======================================================================
+-- helpers begin
+-- ======================================================================
+
+--- All called rules are considered static. Returns 'true'.
+helper context ATL!CalledRule def : isStatic : String =
+	true;
+
+--- Returns the model in which the output element will be generated.
+helper context ATL!OutPatternElement def : outModel : ATL!OclModel =
+	if self.model.oclIsUndefined() then
+		let modelName : String = self.type.modelName in
+		self.outPattern."rule"."module".outModels
+		->select(m|modelName = m.metamodel.name)
+		->first()
+	else
+		self.model
+	endif;
+
+--- Returns the default input element for a matched rule (first element).
+helper context ATL!MatchedRule def : defaultInElement : ATL!InPatternElement =
+	self.inPattern.elements->first();
+
+--- Returns the default input element for a rule ('OclUndefined').
+helper context ATL!Rule def : defaultInElement : ATL!InPatternElement =
+	OclUndefined;
+
+--- Returns the EMFTVM local variable element that represents the given ATL variable expression.
+helper context ATL!VariableExp def : localVariable() : EMFTVM!LocalVariable =
+	let var : ATL!VariableDeclaration = self.referredVariable in
+	if var.isMatchedRuleElement then
+		let realVar : ATL!VariableDeclaration = 
+			if var.isRefiningElement then
+				var.actualSourceElement
+			else
+				var
+			endif
+		in
+		if self.isInApply then
+			thisModule.resolveTemp(realVar, 'ov')
+		else if self.isInPostApply then
+			thisModule.resolveTemp(realVar, 'pv')
+		else
+			thisModule.resolveTemp(realVar, 'lv')
+		endif endif
+	else
+		thisModule.resolveTemp(var, 'lv')
+	endif;
+
+--- Returns 'true' if self is part of a matched rule.
+helper context ATL!VariableDeclaration def : isMatchedRuleElement : Boolean =
+	if self.oclIsKindOf(ATL!PatternElement) or self.oclIsKindOf(ATL!RuleVariableDeclaration) then
+		self.parentRule.oclIsKindOf(ATL!MatchedRule)
+	else false endif;
+
+--- Returns 'true' if self is part of a matched rule.
+helper context ATL!RuleVariableDeclaration def : isMatchedRuleField : Boolean =
+	self.parentRule.oclIsKindOf(ATL!MatchedRule);
+
+--- Returns the containing ATL rule, or self (with error message).
+helper context OclAny def : parentRule : ATL!Rule =
+	let parent : OclAny = self.refImmediateComposite() in
+	if parent.oclIsKindOf(ATL!Rule) then parent
+	else if not parent.oclIsUndefined() then parent.parentRule
+	else self.debug('parent rule not found for')
+	endif endif;
+
+--- Returns the EMFTVM trace element local variable for the given ATL variable expression.
+helper context ATL!VariableExp def : traceVariable() : EMFTVM!LocalVariable =
+	let var : ATL!VariableDeclaration = self.referredVariable in
+	if var.oclIsKindOf(ATL!RuleVariableDeclaration) then
+		let r : ATL!Rule = var."rule" in
+		if self.isInApply then
+			thisModule.resolveTemp(r, 'a_trace')
+		else if self.isInPostApply then
+			thisModule.resolveTemp(r, 'p_trace')
+		else
+			OclUndefined.debug('Cannot access trace local variable from outside apply or post-apply')
+		endif endif
+	else
+		OclUndefined.debug('Trace local variables can only be retrieved for variable expressions referring to rule variables')
+	endif;
+
+--- Returns 'true' if self is contained in the apply section of a rule.
+helper context OclAny def : isInApply : Boolean =
+	let parent : OclAny = self.refImmediateComposite() in
+	if parent.oclIsUndefined() then false
+	else if parent.oclIsKindOf(ATL!Binding) then true
+	else if parent.oclIsKindOf(ATL!RuleVariableDeclaration) then true
+	else parent.isInApply
+	endif endif endif;
+
+--- Returns 'true' if self is contained in the postApply section of a rule.
+helper context OclAny def : isInPostApply : Boolean =
+	let parent : OclAny = self.refImmediateComposite() in
+	if parent.oclIsUndefined() then false
+	else if parent.oclIsKindOf(ATL!Statement) then true
+	else parent.isInPostApply
+	endif endif;
+
+--- Returns the source code location representing this rule.
+helper context ATL!Rule def : postloc : String =
+	if self.actionBlock.oclIsUndefined() then
+		self.location
+	else
+		self.actionBlock.location
+	endif;
+
+--- Returns all called rules for this module.
+helper context ATL!Module def : calledRules : Sequence(ATL!CalledRule) =
+	self.elements->select(e|e.oclIsKindOf(ATL!CalledRule));
+
+--- Returns all output pattern elements for this rule.
+helper context ATL!Rule def : outPatternElements : Sequence(ATL!OutPatternElement) =
+	if self.outPattern.oclIsUndefined() then
+		Sequence{}
+	else
+		self.outPattern.elements
+	endif;
+
+--- Returns the source code location representing the apply section of this rule.
+helper context ATL!Rule def : applyLoc : String =
+	if self.outPattern.oclIsUndefined() then
+		self.location
+	else
+		self.outPattern.location
+	endif;
+
+--- Support for multiple rule inheritance, including rules outside same module
+helper context String def : isExtendsAnn : Boolean =
+	self.substring(3).trim().startsWith('@extends');
+
+--- Returns the '@extends' values for a given annotation string.
+helper context String def : extendsAnnValues : Sequence(String) =
+	if self.isExtendsAnn then
+		self.split('@extends')
+			->at(2).trim().split(',')
+			->collect(s | s.trim())
+	else
+		Sequence{}
+	endif;
+
+
+--- Returns 'true' if self is an output model that refines an input model in a refining mode module.
+helper context ATL!OclModel def : isRefiningModel : Boolean =
+	let p : OclAny = self.refImmediateComposite() in
+	p.oclIsKindOf(ATL!Module) and p.isRefining and (
+		let outModelsSameType : Sequence(ATL!OclModel) = 
+			p.outModels->select(o | o.metamodel.name = self.metamodel.name) in
+		outModelsSameType->notEmpty() and
+		outModelsSameType->first() = self and
+		p.inModels->exists(i | i.metamodel.name = self.metamodel.name)
+	);
+	
+--- Returns 'true' if self is an input model that is refined by an output model in a refining mode module.
+helper context ATL!OclModel def : isRefinedModel : Boolean =
+	let p : OclAny = self.refImmediateComposite() in
+	p.oclIsKindOf(ATL!Module) and p.isRefining and (
+		let inModelsSameType : Sequence(ATL!OclModel) = 
+			p.inModels->select(i | i.metamodel.name = self.metamodel.name) in
+		inModelsSameType->notEmpty() and
+		inModelsSameType->first() = self and
+		p.outModels->exists(o | o.metamodel.name = self.metamodel.name)
+	);
+	
+--- Returns the input model that self refines, or self.
+helper context ATL!OclModel def : refines : ATL!OclModel =
+	if self.isRefiningModel then
+		let p : OclAny = self.refImmediateComposite() in
+		p.inModels->select(m | m.metamodel.name = self.metamodel.name)->first()
+	else
+		self
+	endif;
+	
+--- Returns the output model that self is refined by, or 'OclUndefined'.
+helper context ATL!OclModel def : refinedBy : ATL!OclModel =
+	if self.isRefinedModel then
+		let p : OclAny = self.refImmediateComposite() in
+		p.outModels->select(m | m.metamodel.name = self.metamodel.name)->first()
+	else
+		OclUndefined
+	endif;
+
+--- Returns 'false'.
+helper context ATL!VariableDeclaration def : isRefiningElement : Boolean =
+	false;
+
+--- Returns 'true' if self is an output element that represents a refined input element.
+helper context ATL!OutPatternElement def : isRefiningElement : Boolean =
+	self.outModel.isRefiningModel and
+	self.outPattern."rule".isRefiningRule and
+	(let sourceElement : ATL!InPatternElement = self.actualSourceElement in
+	not sourceElement.oclIsUndefined() and sourceElement.type.sameAs(self.type));
+
+--- Returns 'true' if self has an output element that represents a refinement of this input element.
+helper context ATL!InPatternElement def : hasRefiningElement : Boolean =
+	let r : ATL!Rule = self.inPattern."rule" in
+	r.isRefiningRule and
+	not r.outPattern.oclIsUndefined() and
+	r.outPattern.elements->exists(outElement |
+		outElement.outModel.isRefiningModel and
+		self = outElement.actualSourceElement and 
+		self.type.sameAs(outElement.type)
+	);
+
+--- Returns 'OclUndefined'.
+helper context ATL!VariableDeclaration def : actualSourceElement : ATL!InPatternElement =
+	OclUndefined;
+
+--- Returns the actual source element for self, which is either 's.sourceElement', or the single input element in case self is the first output element.
+helper context ATL!OutPatternElement def : actualSourceElement : ATL!InPatternElement =
+	if self.sourceElement.oclIsUndefined() then
+		if self.outPattern.elements->first() = self then
+			let rl : ATL!Rule = self.outPattern."rule" in
+			if rl.oclIsKindOf(ATL!MatchedRule) and rl.inPattern.elements->size() = 1 then
+				let sourceElement : ATL!InPatternElement = rl.inPattern.elements->first() in
+				if sourceElement."mapsTo".oclIsUndefined() then
+					sourceElement
+				else -- sourceElement already maps to another target element
+					OclUndefined
+				endif
+			else -- input pattern contains less/more than exactly one element
+				OclUndefined
+			endif
+		else -- self is not the first (default) target element
+			OclUndefined
+		endif
+	else
+		self.sourceElement
+	endif;
+
+--- Returns the actual target element for self, which is either 's.mapsTo', or the first output element in case self is the only input element.
+helper context ATL!InPatternElement def : actualMapsToElement : ATL!OutPatternElement =
+	if self."mapsTo".oclIsUndefined() then
+		if self.inPattern.elements->size() = 1 then
+			let rl : ATL!Rule = self.inPattern."rule" in
+			if not rl.outPattern.oclIsUndefined() and rl.outPattern.elements->notEmpty() then
+				rl.outPattern.elements->first()
+			else -- output pattern is empty
+				OclUndefined
+			endif
+		else -- input pattern contains less/more than exactly one element
+			OclUndefined
+		endif
+	else
+		self."mapsTo"
+	endif;
+
+--- Returns the actual source models for self, which is either 's.models', or the all input/inout models that match the metamodel.
+helper context ATL!InPatternElement def : actualModels : Sequence(ATL!OclModel) =
+	if self.models.notEmpty() then
+		self.models
+	else
+		self.inPattern."rule"."module".inModels->select(m|m.metamodel.name = self.type.modelName)
+	endif;
+
+--- Returns 'true' if this rule generates default traces.
+helper context ATL!MatchedRule def : isDefault : Boolean =
+	not self.isNoDefault;
+
+--- Returns 'true' if this rule generates default traces.
+helper context ATL!LazyMatchedRule def : isDefault : Boolean =
+	false;
+
+--- Returns 'true' if this rule behaves as a refining rule.
+helper context ATL!Rule def : isRefiningRule : Boolean =
+	false;
+
+--- Returns 'true' if this rule behaves as a refining rule.
+helper context ATL!MatchedRule def : isRefiningRule : Boolean =
+	self.isDefault;
+
+--- Returns 'true' if this rule behaves as a refining rule.
+helper context ATL!LazyMatchedRule def : isRefiningRule : Boolean =
+	self.isRefining;
+
+-- ======================================================================
+-- helpers end
+-- ======================================================================
+
+-- ======================================================================
+-- matched rules begin
+-- ======================================================================
+
+abstract rule Unit {
+	from s : ATL!Unit in IN
+	to t : EMFTVM!Module (
+		name <- s.name,
+		sourceName <-
+			let index : Integer = s.name.lastIndexOf('::') in
+			if index > 0 then
+				s.name.substring(index + 2, s.name.size()) + '.atl'
+			else
+				s.name + '.atl'
+			endif,
+		imports <- s.libraries->collect(l|l.name),
+		features <- Sequence{main}),
+	   main : EMFTVM!Operation (
+	   	name <- 'main',
+		static <- true,
+		"context" <- 'ExecEnv',
+		contextModel <- 'EMFTVM',
+		type <- 'Object',
+		typeModel <- '#native')
+}
+
+rule Library extends Unit {
+	from s : ATL!Library in IN
+	to t : EMFTVM!Module (
+		features <- s.helpers->collect(h|h.definition)->append(main)),
+	   main : EMFTVM!Operation (
+	   	body <- body),
+	   body : EMFTVM!CodeBlock
+}
+
+rule Query extends Unit {
+	from s : ATL!Query in IN
+	to t : EMFTVM!Module (
+		features <- s.helpers->collect(h|h.definition)->append(main)),
+	   main : EMFTVM!Operation (
+	   	body <- s.body)
+}
+
+rule Module extends Unit {
+	from s : ATL!Module in IN
+	to t : EMFTVM!Module (
+		inputModels <- s.inModels->reject(m | m.isRefinedModel),
+		inoutModels <- s.inModels->select(m | m.isRefinedModel),
+		outputModels <- s.outModels->reject(m | m.isRefiningModel),
+		features <- s.elements->select(e|e.oclIsKindOf(ATL!Helper))->collect(h|h.definition)
+			->union(s.elements->select(e|e.oclIsKindOf(ATL!CalledRule)))
+			->append(main),
+		rules <- s.elements->select(e|e.oclIsKindOf(ATL!MatchedRule))),
+	   main : EMFTVM!Operation (
+	   	body <- body),
+	   body : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{ln}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn) 
+}
+
+rule ModuleWithEntryPoint extends Module {
+	from s : ATL!Module in IN (
+		s.calledRules->exists(r|r.isEntrypoint) and
+		not s.calledRules->exists(r|r.isEndpoint))
+	using {
+		entryPointRule : ATL!CalledRule =
+			s.calledRules->select(r|r.isEntrypoint)->first();
+	}
+	to t : EMFTVM!Module,
+	   body : EMFTVM!CodeBlock (
+		code <- Sequence{getenvtype_entry, invoke_entry}),
+	   ln : EMFTVM!LineNumber (
+	   	instructions <- Sequence{getenvtype_entry, invoke_entry}),
+	   getenvtype_entry : EMFTVM!Getenvtype,								-- [..., ExecEnv]
+	   invoke_entry : EMFTVM!InvokeStatic (									-- [..., result]
+	   	opname <- entryPointRule.name,
+		argcount <- 0),
+	   pb : Problem!Problem (
+	   	description <- 'Entrypoint rules are invoked after matched rules in EMFTVM',
+		location <- entryPointRule.location,
+		severity <- #warning)
+}
+
+rule ModuleWithEndPoint extends Module {
+	from s : ATL!Module in IN (
+		not s.calledRules->exists(r|r.isEntrypoint) and
+		s.calledRules->exists(r|r.isEndpoint))
+	using {
+		endPointRule : ATL!CalledRule =
+			s.calledRules->select(r|r.isEndpoint)->first();
+	}
+	to t : EMFTVM!Module,
+	   body : EMFTVM!CodeBlock (
+		code <- Sequence{getenvtype_end, invoke_end}),
+	   ln : EMFTVM!LineNumber (
+	   	instructions <- Sequence{getenvtype_end, invoke_end}),
+	   getenvtype_end : EMFTVM!Getenvtype,									-- [..., ExecEnv]
+	   invoke_end : EMFTVM!InvokeStatic (									-- [..., result]
+	   	opname <- endPointRule.name,
+		argcount <- 0)
+}
+
+rule ModuleWithEntryAndEndPoint extends Module {
+	from s : ATL!Module in IN (
+		s.calledRules->exists(r|r.isEntrypoint) and
+		s.calledRules->exists(r|r.isEndpoint))
+	using {
+		entryPointRule : ATL!CalledRule =
+			s.calledRules->select(r|r.isEntrypoint)->first();
+		endPointRule : ATL!CalledRule =
+			s.calledRules->select(r|r.isEndpoint)->first();
+	}
+	to t : EMFTVM!Module,
+	   body : EMFTVM!CodeBlock (
+		code <- Sequence{getenvtype_entry, invoke_entry, pop, getenvtype_end, invoke_end}),
+	   ln : EMFTVM!LineNumber (
+	   	instructions <- Sequence{getenvtype_entry, invoke_entry, pop, getenvtype_end, invoke_end}),
+	   getenvtype_entry : EMFTVM!Getenvtype,								-- [..., ExecEnv]
+	   invoke_entry : EMFTVM!InvokeStatic (									-- [..., result]
+	   	opname <- entryPointRule.name,
+		argcount <- 0),
+	   pop : EMFTVM!Pop,													-- [...]
+	   getenvtype_end : EMFTVM!Getenvtype,									-- [..., ExecEnv]
+	   invoke_end : EMFTVM!InvokeStatic (									-- [..., result]
+	   	opname <- endPointRule.name,
+		argcount <- 0),
+	   pb : Problem!Problem (
+	   	description <- 'Entrypoint rules are invoked after matched rules in EMFTVM',
+		location <- entryPointRule.location,
+		severity <- #warning)
+}
+
+rule ModelDeclaration {
+	from s : ATL!OclModel in IN (not s.metamodel.oclIsUndefined() and not s.isRefiningModel)
+	to t : EMFTVM!ModelDeclaration (
+		modelName <- s.name,
+		metaModelName <- s.metamodel.name)
+}
+
+rule InPatternElement {
+	from s : ATL!InPatternElement in IN
+	to re : EMFTVM!InputRuleElement (
+		name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName,
+		mapsToSelf <- s.hasRefiningElement,
+		models <- s.models->collect(m|m.name)),
+	   ov : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName)
+}
+
+rule InPatternElementWithFilter extends InPatternElement {
+	from s : ATL!InPatternElement in IN (
+		not s.inPattern.filter.oclIsUndefined())
+	to re : EMFTVM!InputRuleElement,
+	   lv : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName)
+}
+
+rule InPatternElementWithAction extends InPatternElement {
+	from s : ATL!InPatternElement in IN (
+		not s.inPattern."rule".actionBlock.oclIsUndefined())
+	to re : EMFTVM!InputRuleElement,
+	   pv : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName)
+}
+
+
+-- @extends InPatternElementWithFilter, InPatternElementWithAction
+rule InPatternElementWithFilterAndAction {
+	from s : ATL!InPatternElement in IN
+	to re : EMFTVM!InputRuleElement
+}
+
+rule OutPatternElement {
+	from s : ATL!OutPatternElement in IN (
+		let r : ATL!Rule = s.outPattern."rule" in
+		r.oclIsKindOf(ATL!MatchedRule) and
+		not ((r.isDefault or r.isRefining) and s.isRefiningElement))
+	using {
+		outModel : ATL!OclModel =
+			if s.outModel.isRefiningModel then
+				s.outModel.refines
+			else
+				s.outModel
+			endif;
+	}
+	to re : EMFTVM!OutputRuleElement (
+		name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName,
+		models <- Sequence{outModel.name}),
+	   ov : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName)
+}
+
+rule OutPatternElementWithMapsTo extends OutPatternElement {
+	from s : ATL!OutPatternElement in IN (
+		not s.sourceElement.oclIsUndefined())
+	to re : EMFTVM!OutputRuleElement (
+		"mapsTo" <- Sequence{thisModule.resolveTemp(s.sourceElement, 're')})
+}
+
+rule OutPatternElementWithAction extends OutPatternElement {
+	from s : ATL!OutPatternElement in IN (
+		not s.outPattern."rule".actionBlock.oclIsUndefined())
+	to re : EMFTVM!OutputRuleElement,
+	   pv : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName)
+}
+
+-- @extends OutPatternElementWithAction, OutPatternElementWithMapsTo
+rule OutPatternElementWithActionAndMapsTo {
+	from s : ATL!OutPatternElement in IN
+	to re : EMFTVM!OutputRuleElement
+}
+
+nodefault rule ForEachOutPatternElement {
+	from s : ATL!ForEachOutPatternElement in IN
+	to pb : Problem!Problem (
+		severity <- #error,
+		location <- s.location,
+		description <- '"distinct - foreach" output elements not supported in EMFTVM')
+}
+
+nodefault rule DropPattern {
+	from s : ATL!DropPattern in IN
+	to pb : Problem!Problem (
+		severity <- #error,
+		location <- s.location,
+		description <- '"drop" output patterns not supported in EMFTVM - omit the "to" part instead')
+}
+
+rule CalledRuleOutPatternElement {
+	from s : ATL!OutPatternElement in IN (
+		s.outPattern."rule".oclIsKindOf(ATL!CalledRule))
+	using {
+		outModel : ATL!OclModel =
+			if s.outModel.isRefiningModel then
+				s.outModel.refines
+			else
+				s.outModel
+			endif;
+	}
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		code <- Sequence{findtype, new, store}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{findtype, new, store}),
+	   lv : EMFTVM!LocalVariable (
+	   	name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName),
+	   findtype : EMFTVM!Findtype (											-- [..., type]
+	   	modelname <- s.type.modelName,
+		typename <- s.type.typeName),
+	   new : EMFTVM!New (modelname <- outModel.name),						-- [..., element]
+	   store : EMFTVM!Store (localVariable <- lv)							-- [...]
+}
+
+rule CalledRuleVariableDeclaration {
+	from s : ATL!RuleVariableDeclaration in IN (s."rule".oclIsKindOf(ATL!CalledRule))
+	to lv : EMFTVM!LocalVariable (
+		name <- s.varName,
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName),
+	   cb : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{ln},
+	   	nested <- Sequence{s.initExpression},
+		code <- Sequence{invokeCb, store}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, store}),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.initExpression, argcount <- 0),	-- [..., value]
+	   store : EMFTVM!Store (localVariable <- s)									-- [...]
+}
+
+rule CalledRule { -- Called rules are really operations
+	from s : ATL!CalledRule in IN
+	to t : EMFTVM!Operation (
+		name <- s.name,
+		static <- true,
+		"context" <- 'ExecEnv',
+		contextModel <- 'EMFTVM',
+		type <- 'java.lang.Object',
+		typeModel <- '#native',
+		parameters <- s.parameters,
+		body <- body),
+	   body : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{ln},
+		localVariables <- s.parameters->collect(p|thisModule.resolveTemp(p, 'lv'))
+			->union(s.outPatternElements->collect(p|thisModule.resolveTemp(p, 'lv')))
+			->union(s.variables),
+		nested <- s.outPatternElements
+			->union(s.variables->collect(v|thisModule.resolveTemp(v, 'cb')))
+			->union(s.outPatternElements->collect(e|e.bindings)->flatten())
+			->union(
+				if s.actionBlock.oclIsUndefined() then
+					Sequence{}
+				else
+					s.actionBlock.statements
+				endif),
+		code <- Sequence{invokeAllCbs}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeAllCbs}),
+	   invokeAllCbs : EMFTVM!InvokeAllCbs									-- [...]
+}
+
+rule CalledRuleNamedMain extends CalledRule {
+	from s : ATL!CalledRule in IN (s.name = 'main')
+	to t : EMFTVM!Operation,
+	   pb : Problem!Problem (
+		description <- 'Called rules may not be named "main()"',
+		location <- s.location,
+		severity <- #error)
+}
+
+rule MatchedRuleVariableDeclaration {
+	from s : ATL!RuleVariableDeclaration in IN (s."rule".oclIsKindOf(ATL!MatchedRule))
+	to t : EMFTVM!Field (
+		name <- s.varName,
+		"context" <- 'TraceLink',
+		contextModel <- 'TRACE',
+		type <- s.type.typeName,
+		typeModel <- s.type.modelName,
+		initialiser <- init),
+	   init : EMFTVM!CodeBlock, -- Empty initialiser
+	   cb : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{ln},
+	   	nested <- Sequence{s.initExpression},
+		code <- Sequence{load, invokeCb, set}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{load, invokeCb, set}),
+	   load : EMFTVM!Load (localVariable <- thisModule.resolveTemp(s."rule", 'a_trace')),	-- [..., trace]
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.initExpression, argcount <- 0),			-- [..., trace, value]
+	   set : EMFTVM!"Set" (fieldname <- s.varName)											-- [...]
+}
+
+rule MatchedRule {
+	from s : ATL!MatchedRule in IN
+	using {
+		deletedSourceElements : Sequence(ATL!InPatternElement) =
+			s.inPattern.elements->select(e|
+				(s.isDefault or s.isRefining) and
+				e.actualModels->forAll(m|m.isRefinedModel) and
+				(e.actualMapsToElement.oclIsUndefined() or
+				not e.actualMapsToElement.isRefiningElement));
+		remappedSourceElements : Sequence(ATL!InPatternElement) =
+			deletedSourceElements->reject(e|
+				e.actualMapsToElement.oclIsUndefined());
+	}
+	to t : EMFTVM!Rule (
+		name <- s.name,
+		"abstract" <- s.isAbstract,
+		superRules <- 
+			if s.superRule.oclIsUndefined() then
+				s.commentsBefore->collect(c | c.extendsAnnValues)->flatten()
+			else
+				Sequence{s.superRule.name}
+			endif,
+		outputElements <-
+			if s.isDefault or s.isRefining then
+				s.outPatternElements->reject(e|e.isRefiningElement)
+			else
+				s.outPatternElements
+			endif,
+		mode <- 
+			if s.oclIsKindOf(ATL!LazyMatchedRule) then
+				#manual
+			else
+				#automaticSingle
+			endif,
+		default <- s.isDefault,
+		"unique" <- (s.oclIsKindOf(ATL!LazyMatchedRule) and	s.isUnique) or s.isNoDefault,
+		distinctElements <- false,
+		inputElements <- s.inPattern.elements,
+		fields <- s.variables,
+		applier <- a),
+	   a : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{aln},
+	   	localVariables <- Sequence{a_trace}
+			->union(s.inPattern.elements->collect(e|thisModule.resolveTemp(e, 'ov')))
+			->union(s.outPatternElements->reject(e|e.isRefiningElement)->collect(e|thisModule.resolveTemp(e, 'ov'))),
+		nested <- s.variables->collect(v|thisModule.resolveTemp(v, 'cb'))
+			->union(s.outPatternElements->collect(e|e.bindings)->flatten())
+			->union(remappedSourceElements->collect(e|thisModule.RemapInPatternElement(e)))
+			->union(deletedSourceElements->collect(e|thisModule.DeleteInPatternElement(e))),
+	   	code <- Sequence{a_invokeAllCbs}),
+	   aln : EMFTVM!LineNumber (
+	   	startLine <- s.applyLoc.startLine,
+		startColumn <- s.applyLoc.startColumn,
+		endLine <- s.applyLoc.endLine,
+		endColumn <- s.applyLoc.endColumn,
+		instructions <- Sequence{a_invokeAllCbs}),
+	   a_trace : EMFTVM!LocalVariable (
+	   	name <- '__trace__',
+		type <- 'TraceLink',
+		typeModel <- 'TRACE'),
+	   a_invokeAllCbs : EMFTVM!InvokeAllCbs									-- [...]
+}
+
+rule MatchedRuleWithFilter extends MatchedRule {
+	from s : ATL!MatchedRule in IN (
+		not s.inPattern.filter.oclIsUndefined())
+	using {
+		matchLoc : String = s.inPattern.filter.location;
+	}
+	to t : EMFTVM!Rule (
+		matcher <- m),
+	   m : EMFTVM!CodeBlock (
+	   	lineNumbers <- Sequence{mln},
+	   	localVariables <- s.inPattern.elements->collect(e|thisModule.resolveTemp(e, 'lv')),
+	   	nested <- Sequence{s.inPattern.filter},
+	   	code <- Sequence{invokeCb}),
+	   mln : EMFTVM!LineNumber (
+	   	startLine <- matchLoc.startLine,
+		startColumn <- matchLoc.startColumn,
+		endLine <- matchLoc.endLine,
+		endColumn <- matchLoc.endColumn,
+	   	instructions <- Sequence{invokeCb}),
+	   invokeCb : EMFTVM!InvokeCb  (codeBlock <- s.inPattern.filter)
+}
+
+rule MatchedRuleWithAction extends MatchedRule {
+	from s : ATL!MatchedRule in IN (
+		not s.actionBlock.oclIsUndefined())
+	using {
+		postLoc : String = s.actionBlock.location;
+	}
+	to t : EMFTVM!Rule (
+		postApply <- p),
+	   p : EMFTVM!CodeBlock (
+	   	localVariables <- Sequence{p_trace}
+			->union(s.inPattern.elements->collect(e|thisModule.resolveTemp(e, 'pv')))
+			->union(s.outPatternElements->reject(e|e.isRefiningElement)->collect(e|thisModule.resolveTemp(e, 'pv'))),
+	   	lineNumbers <- Sequence{pln},
+	   	nested <- s.actionBlock.statements,
+		code <- Sequence{p_invokeAllCbs}),
+	   p_trace : EMFTVM!LocalVariable (
+	   	name <- '__trace__',
+	   	type <- 'TraceLink',
+		typeModel <- 'TRACE'),
+	   pln : EMFTVM!LineNumber (
+	   	startLine <- postLoc.startLine,
+		startColumn <- postLoc.startColumn,
+		endLine <- postLoc.endLine,
+		endColumn <- postLoc.endColumn,
+		instructions <- Sequence{p_invokeAllCbs}),
+	   p_invokeAllCbs : EMFTVM!InvokeAllCbs									-- [..., value]
+}
+
+-- @extends MatchedRuleWithFilter, MatchedRuleWithAction
+rule MatchedRuleWithFilterAndAction {
+	from s : ATL!MatchedRule in IN
+	to t : EMFTVM!Rule
+}
+
+nodefault rule RefiningMatchedRule {
+	from s : ATL!MatchedRule (s.isRefining and not s.oclIsKindOf(ATL!LazyMatchedRule))
+	to pb : Problem!Problem (
+		severity <- #warning,
+		location <- s.location,
+		description <- 'all matched rules are "refining" in refining mode')
+}
+
+rule Binding {
+	from s : ATL!Binding in IN
+	using {
+		element : ATL!PatternElement =
+			if s.outPatternElement.isRefiningElement then
+				s.outPatternElement.actualSourceElement
+			else
+				s.outPatternElement
+			endif;
+	}
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.value},
+		code <- Sequence{load, invokeCb, set}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{load, invokeCb, set}),
+	   load : EMFTVM!Load (
+	   	localVariable <-													-- [..., lv]
+			if s.parentRule.oclIsKindOf(ATL!MatchedRule) then
+				thisModule.resolveTemp(element, 'ov')
+			else
+				thisModule.resolveTemp(element, 'lv')
+			endif),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.value, argcount <- 0),	-- [..., lv, value]
+	   set : EMFTVM!"Set" (fieldname <- s.propertyName)						-- [...]
+}
+
+rule ResolvingBinding extends Binding {
+	from s : ATL!Binding in IN (not s.isAssignment)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{load, invokeCb, invoke, set}),
+	   ln : EMFTVM!LineNumber (
+		instructions <- Sequence{load, invokeCb, invoke, set}),
+	   load : EMFTVM!Load,													-- [..., lv]
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., lv, value]
+	   invoke : EMFTVM!Invoke (opname <- 'resolve', argcount <- 0),			-- [..., lv, rvalue]
+	   set : EMFTVM!"Set"													-- [...]
+}
+
+-------------- Statements -----------------
+
+rule ExpressionStat {
+	from s : ATL!ExpressionStat in IN
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.expression},
+		code <- Sequence{invokeCb}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb}),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.expression, argcount <- 0)	-- [..., value]
+}
+
+rule NonLastExpressionStat extends ExpressionStat {
+	from s : ATL!ExpressionStat in IN (
+		not s.refImmediateComposite().oclIsKindOf(ATL!ActionBlock) or
+		s.refImmediateComposite().statements->last() <> s)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{invokeCb, pop}),
+	   ln : EMFTVM!LineNumber (
+	   	instructions <- Sequence{invokeCb, pop}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., value]
+	   pop : EMFTVM!Pop														-- [...]
+}
+
+abstract rule BindingStat {
+	from s : ATL!BindingStat in IN (
+		s.source.oclIsKindOf(ATL!NavigationOrAttributeCallExp))
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.source.source, s.value},
+		code <- Sequence{invokeCb, invokeCb2, set}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, invokeCb2, set}),
+	   invokeCb : EMFTVM!InvokeCb (											-- [..., source]
+	   	codeBlock <- s.source.source, argcount <- 0),
+	   invokeCb2 : EMFTVM!InvokeCb (codeBlock <- s.value, argcount <- 0),	-- [..., source, value]
+	   set : EMFTVM!FieldInstruction (fieldname <- s.source.name)			-- [...]
+}
+
+rule BindingStatAttribute extends BindingStat {
+	from s : ATL!BindingStat in IN (not s.source.isStatic)
+	to cb : EMFTVM!CodeBlock,
+	   ln : EMFTVM!LineNumber,
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., source]
+	   invokeCb2 : EMFTVM!InvokeCb,											-- [..., source, value]
+	   set : EMFTVM!"Set"													-- [...]
+}
+
+rule ResolvingBindingStatAttribute extends BindingStatAttribute {
+	from s : ATL!BindingStat in IN (not s.isAssignment)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{invokeCb, invokeCb2, invoke, set}),
+	   ln : EMFTVM!LineNumber (
+		instructions <- Sequence{invokeCb, invokeCb2, invoke, set}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., source]
+	   invokeCb2 : EMFTVM!InvokeCb,											-- [..., source, value]
+	   invoke : EMFTVM!Invoke (opname <- 'resolve', argcount <- 0),			-- [..., source, rvalue]
+	   set : EMFTVM!"Set"													-- [...]
+}
+
+rule BindingStatStaticAttribute extends BindingStat {
+	from s : ATL!BindingStat in IN (s.source.isStatic)
+	to cb : EMFTVM!CodeBlock,
+	   ln : EMFTVM!LineNumber,
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., source]
+	   invokeCb2 : EMFTVM!InvokeCb,											-- [..., source, value]
+	   set : EMFTVM!SetStatic												-- [...]
+}
+
+rule ResolvingBindingStatStaticAttribute extends BindingStatStaticAttribute {
+	from s : ATL!BindingStat in IN (not s.isAssignment)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{invokeCb, invokeCb2, invoke, set}),
+	   ln : EMFTVM!LineNumber (
+		instructions <- Sequence{invokeCb, invokeCb2, invoke, set}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., source]
+	   invokeCb2 : EMFTVM!InvokeCb,											-- [..., source, value]
+	   invoke : EMFTVM!Invoke (opname <- 'resolve', argcount <- 0),			-- [..., source, rvalue]
+	   set : EMFTVM!SetStatic												-- [...]
+}
+
+rule BindingStatVariable {
+	from s : ATL!BindingStat in IN (
+		s.source.oclIsKindOf(ATL!VariableExp) and
+		s.source.referredVariable.varName <> 'thisModule' and
+		not s.source.referredVariable.isMatchedRuleField)
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.value},
+		code <- Sequence{invokeCb, store}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, store}),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.value, argcount <- 0),	-- [..., value]
+	   store : EMFTVM!Store (localVariable <- s.source.referredVariable)	-- [...]
+}
+
+rule ResolvingBindingStatVariable extends BindingStatVariable {
+	from s : ATL!BindingStat in IN (not s.isAssignment)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{invokeCb, invoke, store}),
+	   ln : EMFTVM!LineNumber (
+		instructions <- Sequence{invokeCb, invoke, store}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., value]
+	   invoke : EMFTVM!Invoke (opname <- 'resolve', argcount <- 0),			-- [..., rvalue]
+	   store : EMFTVM!Store													-- [...]
+}
+
+rule BindingStatRuleField {
+	from s : ATL!BindingStat in IN (
+		s.source.oclIsKindOf(ATL!VariableExp) and
+		s.source.referredVariable.isMatchedRuleField)
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.value},
+		code <- Sequence{load, invokeCb, set}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{load, invokeCb, set}),
+	   load : EMFTVM!Load (localVariable <- s.source.traceVariable()),		-- [..., trace]
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.value, argcount <- 0),	-- [..., trace, value]
+	   set : EMFTVM!"Set" (fieldname <- s.source.referredVariable.varName)	-- [...]
+}
+
+rule ResolvingBindingStatRuleField extends BindingStatRuleField {
+	from s : ATL!BindingStat in IN (not s.isAssignment)
+	to cb : EMFTVM!CodeBlock (
+		code <- Sequence{load, invokeCb, invoke, set}),
+	   ln : EMFTVM!LineNumber (
+		instructions <- Sequence{load, invokeCb, invoke, set}),
+	   load : EMFTVM!Load,													-- [..., trace]
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., trace, value]
+	   invoke : EMFTVM!Invoke (opname <- 'resolve', argcount <- 0),			-- [..., trace, rvalue]
+	   set : EMFTVM!"Set"													-- [...]
+}
+
+abstract rule IfStat {
+	from s : ATL!IfStat in IN
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.condition, argcount <- 0)	-- [..., cond]
+}
+
+rule IfStatWithThenAndElse extends IfStat {
+	from s : ATL!IfStat in IN (s.thenStatements->notEmpty() and s.elseStatements->notEmpty())
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.condition, thenCb, elseCb},
+		code <- Sequence{invokeCb, ifn, invokeThen, goto, invokeElse}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, ifn, invokeThen, goto, invokeElse}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., cond]
+	   ifn : EMFTVM!Ifn (target <- goto),									-- [...]
+	   invokeThen : EMFTVM!InvokeCb (codeBlock <- thenCb, argcount <- 0),	-- [..., result]
+	   goto : EMFTVM!Goto (target <- invokeElse),							-- [..., result]
+	   invokeElse : EMFTVM!InvokeCb (codeBlock <- elseCb, argcount <- 0),	-- [..., result]
+	   thenCb : EMFTVM!CodeBlock (
+	   	nested <- s.thenStatements,
+		code <- Sequence{invokeAllCbs}),
+	   invokeAllCbs : EMFTVM!InvokeAllCbs (argcount <- 0),
+	   elseCb : EMFTVM!CodeBlock (
+	   	nested <- s.elseStatements,
+		code <- Sequence{invokeAllCbs2}),
+	   invokeAllCbs2 : EMFTVM!InvokeAllCbs (argcount <- 0)
+}
+
+rule IfStatWithThen extends IfStat {
+	from s : ATL!IfStat in IN (s.thenStatements->notEmpty() and s.elseStatements->isEmpty())
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.condition, thenCb},
+		code <- Sequence{invokeCb, ifn, invokeThen}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, ifn, invokeThen}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., cond]
+	   ifn : EMFTVM!Ifn (target <- invokeThen),								-- [...]
+	   invokeThen : EMFTVM!InvokeCb (codeBlock <- thenCb, argcount <- 0),	-- [..., result]
+	   thenCb : EMFTVM!CodeBlock (
+	   	nested <- s.thenStatements,
+		code <- Sequence{invokeAllCbs}),
+	   invokeAllCbs : EMFTVM!InvokeAllCbs (argcount <- 0)
+}
+
+rule IfStatWithElse extends IfStat {
+	from s : ATL!IfStat in IN (s.thenStatements->isEmpty() and s.elseStatements->notEmpty())
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.condition, elseCb},
+		code <- Sequence{invokeCb, ift, invokeElse}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, ift, invokeElse}),
+	   invokeCb : EMFTVM!InvokeCb,											-- [..., cond]
+	   ift : EMFTVM!If (target <- invokeElse),								-- [...]
+	   invokeElse : EMFTVM!InvokeCb (codeBlock <- elseCb, argcount <- 0),	-- [..., result]
+	   elseCb : EMFTVM!CodeBlock (
+	   	nested <- s.elseStatements,
+		code <- Sequence{invokeAllCbs2}),
+	   invokeAllCbs2 : EMFTVM!InvokeAllCbs (argcount <- 0)
+}
+
+rule IfStatWithNothing extends IfStat {
+	from s : ATL!IfStat in IN (s.thenStatements->isEmpty() and s.elseStatements->isEmpty())
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.condition},
+		code <- Sequence{invokeCb, pop}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, pop}),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.condition, argcount <- 0),	-- [..., cond]
+	   pop : EMFTVM!Pop 														-- [...]
+}
+
+rule ForStat {
+	from s : ATL!ForStat in IN
+	to cb : EMFTVM!CodeBlock (
+		localVariables <- Sequence{s.iterator},
+		lineNumbers <- Sequence{ln},
+		nested <- Sequence{s.collection, loop},
+		code <- Sequence{invokeCb, it, store, invokeCb2, endit}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{invokeCb, it, store, invokeCb2, endit}),
+	   invokeCb : EMFTVM!InvokeCb (codeBlock <- s.collection, argcount <- 0),		-- [..., coll]
+	   it : EMFTVM!Iterate (target <- endit),										-- [..., it(coll), value]
+	   store : EMFTVM!Store (localVariable <- s.iterator),							-- [..., it(coll)]
+	   invokeCb2 : EMFTVM!InvokeCb (codeBlock <- loop),								-- [..., it(coll)]
+	   endit : EMFTVM!Enditerate (target <- it),									-- [...]
+	   loop : EMFTVM!CodeBlock (
+	   	nested <- s.statements,
+		code <- Sequence{invokeAllCbs}),
+	   invokeAllCbs : EMFTVM!InvokeAllCbs (argcount <- 0)
+}
+
+-- ======================================================================
+-- matched rules end
+-- ======================================================================
+
+-- ======================================================================
+-- lazy rules begin
+-- ======================================================================
+
+lazy rule DeleteInPatternElement {
+	from s : ATL!InPatternElement
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		code <- Sequence{load, delete}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{load, delete}),
+	   load : EMFTVM!Load (															-- [..., source]
+	   	localVariable <- thisModule.resolveTemp(s, 'ov')),
+	   delete : EMFTVM!Delete														-- [...]
+	do {
+		cb;
+	}
+}
+
+lazy rule RemapInPatternElement {
+	from s : ATL!InPatternElement
+	to cb : EMFTVM!CodeBlock (
+		lineNumbers <- Sequence{ln},
+		code <- Sequence{load, load2, invoke, pop}),
+	   ln : EMFTVM!LineNumber (
+	   	startLine <- s.location.startLine,
+		startColumn <- s.location.startColumn,
+		endLine <- s.location.endLine,
+		endColumn <- s.location.endColumn,
+		instructions <- Sequence{load, load2, invoke, pop}),
+	   load : EMFTVM!Load (															-- [..., source]
+	   	localVariable <- thisModule.resolveTemp(s, 'ov')),
+	   load2 : EMFTVM!Load (														-- [..., source, target]
+	   	localVariable <- thisModule.resolveTemp(s.actualMapsToElement, 'ov')),
+	   invoke : EMFTVM!Invoke (														-- [..., target]
+	   	opname <- 'remap',
+		argcount <- 1),
+	   pop : EMFTVM!Pop																-- [...]
+	do {
+		cb;
+	}
+}
+
+-- ======================================================================
+-- lazy rules end
+-- ======================================================================

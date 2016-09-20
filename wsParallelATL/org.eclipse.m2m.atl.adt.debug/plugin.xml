@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.2"?>
+<plugin>
+
+<!-- extension point : launch method is contained in this class-->
+<!-- extension point : screen configuration for launching ATL transformation-->
+<!-- extension point : debug model presentation-->
+   <extension
+         point="org.eclipse.debug.ui.debugModelPresentations">
+      <debugModelPresentation
+            class="org.eclipse.m2m.atl.adt.debug.ui.AtlDebugModelPresentation"
+            id="org.eclipse.m2m.atl.adt.debug">
+      </debugModelPresentation>
+   </extension>
+<!-- extension point : source locator -->
+<!-- extension point : images for Atl launch configuration -->
+<!-- extension point : new action in popup menu -->
+   <extension
+         point="org.eclipse.ui.popupMenus">
+      <objectContribution
+            objectClass="org.eclipse.debug.core.model.IDebugElement"
+            id="pop.contribution1">
+         <menu
+               label="Debug mode"
+               path="additions"
+               id="pop.menu1">
+            <separator
+                  name="group1">
+            </separator>
+         </menu>
+         <action
+               label="Disassembly mode"
+               style="toggle"
+               class="org.eclipse.m2m.atl.adt.debug.ui.DisassemblyModeAction"
+               menubarPath="pop.menu1/group1"
+               enablesFor="1"
+               id="pop.newAction">
+         </action>
+      </objectContribution>
+   </extension>
+   
+   <extension
+         point="org.eclipse.ui.editors.documentProviders">
+      <provider
+            class="org.eclipse.m2m.atl.adt.debug.ui.DisassemblyDocumentProvider"
+            inputTypes="org.eclipse.m2m.atl.adt.debug.ui.AtlDebugModelPresentation$DisassemblyEditorInput"
+            id="org.eclipse.m2m.atl.adt.debug.provider1"/>
+   </extension>
+
+   <extension
+         point="org.eclipse.core.runtime.adapters">
+      <factory
+            class="org.eclipse.m2m.atl.adt.debug.ui.AtlBreakpointAdapterFactory"
+            adaptableType="org.eclipse.m2m.atl.adt.ui.editor.AtlEditor">
+			<adapter type="org.eclipse.debug.ui.actions.IToggleBreakpointsTarget"/>
+      </factory>
+   </extension>   
+
+<extension
+         point="org.eclipse.ui.editorActions">
+      <editorContribution
+            targetID="org.eclipse.m2m.atl.adt.editor.AtlEditor"
+            id="atl.rulerActions">
+         <action
+               actionID="RulerDoubleClick"
+               class="org.eclipse.debug.ui.actions.RulerToggleBreakpointActionDelegate"
+               icon="icons/breakpoint.gif"
+               id="org.eclipse.m2m.atl.adt.debug.actions.doubleClickBreakpointAction"
+               label="Toggle ATL Breakpoint"
+               style="push"/>
+      </editorContribution>
+   </extension>
+  <extension
+         point="org.eclipse.ui.popupMenus">
+      <viewerContribution
+            targetID="org.eclipse.m2m.atl.adt.editor.AtlEditor.RulerContext"
+            id="org.eclipse.m2m.atl.adt.editor.actions">
+         <action
+               class="org.eclipse.debug.ui.actions.RulerToggleBreakpointActionDelegate"
+               icon="icons/breakpoint.gif"
+               id="org.eclipse.m2m.atl.adt.debug.actions.doubleClickBreakpointAction"
+               label="Toggle ATL Breakpoint"
+               menubarPath="additions">
+         </action>
+      </viewerContribution>
+   </extension>
+</plugin>

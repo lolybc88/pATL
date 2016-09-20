@@ -1,0 +1,220 @@
+-- @path MM=/myproj/DBLP.ecore
+-- @path MM1=/myproj/DBLP.ecore
+
+module IdentityDBLP;
+create OUT : MM1 from IN : MM;
+
+rule article {
+	from
+		a : MM!Article
+	to 
+		a2 : MM1!Article (
+			authors <- a.authors,
+			ee <- a.ee,
+			key <- a.key,
+			mdate <- a.mdate,
+			url <- a.url,
+			fromPage <- a.fromPage,
+			journal <- a.journal,
+			month <- a.month,
+			number <- a.number,
+			title <- a.title,
+			toPage <- a.toPage,
+			volume <- a.volume,
+			year <- a.year
+		)
+}
+
+rule author {
+	from
+		a : MM!Author
+	to 
+		a1 : MM1!Author (
+			name <- a.name,
+			records <- a.records
+		)
+}
+
+rule book {
+	from
+		b : MM!Book
+	to 
+		b1 : MM1!Book (
+			authors <- b.authors,
+			ee <- b.ee,
+			key <- b.key,
+			mdate <- b.mdate,
+			url <- b.url,
+			edition <- b.edition,
+			isbn <- b.isbn,
+			month <- b.month,
+			publisher <- b.publisher,
+			series <- b.series,
+			title <- b.title,
+			volume <- b.volume,
+			year <- b.year
+		)
+}
+
+rule editor {
+	from
+		e : MM!Editor
+	to 
+		e1 : MM1!Editor (
+			name <- e.name
+		)
+}
+
+rule incollection {
+	from
+		i : MM!InCollection
+	to 
+		i1 : MM1!InCollection (
+			authors <- i.authors,
+			ee <- i.ee,
+			key <- i.key,
+			mdate <- i.mdate,
+			url <- i.url,
+			bookTitle <- i.bookTitle,
+			editors <- i.editors,
+			fromPage <- i.fromPage,
+			month <- i.month,
+			publisher <- i.publisher,
+			sponsoredBy <- i.sponsoredBy,
+			title <- i.title,
+			toPage <- i.toPage,
+			year <- i.year
+		)
+}
+
+rule inproceedings {
+	from
+		i : MM!InProceedings
+	to 
+		i2 : MM1!InProceedings (
+			authors <- i.authors,
+			ee <- i.ee,
+			key <- i.key,
+			mdate <- i.mdate,
+			url <- i.url,
+			bootitle <- i.bootitle,
+			editors <- i.editors,
+			fromPage <- i.fromPage,
+			month <- i.month,
+			organization <- i.organization,
+			publisher <- i.publisher,
+			title <- i.title,
+			toPage <- i.toPage,
+			year <- i.year
+		)
+}
+
+rule journal {
+	from
+		j : MM!Journal
+	to 
+		j1 : MM1!Journal (
+			articles <- j.articles,
+			name <- j.name
+		)
+}
+
+rule mastersthesis {
+	from
+		mt : MM!MastersThesis
+	to 
+		mt1 : MM1!MastersThesis (
+			authors <- mt.authors,
+			ee <- mt.ee,
+			key <- mt.key,
+			mdate <- mt.mdate,
+			url <- mt.url,
+			month <- mt.month,
+			school <- mt.school,
+			title <- mt.title,
+			year <- mt.year
+		)
+}
+
+rule organization {
+	from
+		o : MM!Organization
+	to 
+		o1 : MM1!Organization (
+			name <- o.name
+		)
+}
+
+rule phdthesis {
+	from
+		p : MM!PhDThesis
+	to 
+		p1 : MM1!PhDThesis (
+			authors <- p.authors,
+			ee <- p.ee,
+			key <- p.key,
+			mdate <- p.mdate,
+			url <- p.url,
+			month <- p.month,
+			school <- p.school,
+			title <- p.title,
+			year <- p.year
+		)
+}
+
+rule proceedings {
+	from
+		p : MM!Proceedings
+	to 
+		p1 : MM1!Proceedings (
+			authors <- p.authors,
+			ee <- p.ee,
+			key <- p.key,
+			mdate <- p.mdate,
+			url <- p.url,
+			editors <- p.editors,
+			isbn <- p.isbn,
+			month <- p.month,
+			publisher <- p.publisher,
+			sponsoredBy <- p.sponsoredBy,
+			title <- p.title,
+			year <- p.year
+		)
+}
+
+rule publisher {
+	from
+		p : MM!Publisher
+	to 
+		p1 : MM1!Publisher (
+			address <- p.address,
+			name <- p.name
+		)
+}
+
+rule school {
+	from
+		s : MM!School
+	to 
+		s1 : MM1!School (
+			address <- s.address,
+			name <- s.name
+		)
+}
+
+rule www {
+	from
+		w : MM!Www
+	to 
+		w1 : MM1!Www (
+			authors <- w.authors,
+			ee <- w.ee,
+			key <- w.key,
+			mdate <- w.mdate,
+			url <- w.url,
+			editors <- w.editors,
+			month <- w.month,
+			title <- w.title,
+			year <- w.year
+		)
+}

@@ -1,0 +1,79 @@
+-- @path MM=/Java2Graph_CaseStudy/java.ecore
+-- @path MM1=/Java2Graph_CaseStudy/graph.ecore
+
+
+module Java2Graph;
+create OUT: MM1 from IN: MM;
+
+helper context MM!Package def: rootPackage(): MM!Package =
+	if self.package.oclIsUndefined() then self else self.package.rootPackage() endif;
+
+helper context MM!ClassDeclaration def: package(): MM!Package =
+	self.package;
+
+helper def: type(cd: MM!ClassDeclaration): String =
+	if not cd.modifier.oclIsUndefined() then
+		if cd.modifier.inheritance=#final then
+			'F'
+		else
+			if cd.modifier.inheritance=#"abstract" then
+				'A'
+			else
+				'N'
+			endif
+		endif
+	else
+		'N'
+	endif;
+
+
+
+rule toNode {
+	from
+		inn: MM!ClassDeclaration (
+			if inn.package.oclIsUndefined() then
+			false
+		else
+			inn.package.rootPackage().name.indexOf('java') < 0
+		endif
+		)
+	to
+		out: MM1!Node (
+			name <- inn.name,
+			type <- thisModule.type(inn),
+			size <- inn.bodyDeclarations -> select(bd | bd.
+					oclIsTypeOf(MM!FieldDeclaration)) -> size()
+		)
+}
+
+rule toEdge {
+	from
+		fd: MM!FieldDeclaration (
+			if (if not fd.type.oclIsUndefined() then
+				if not fd.type.type.oclIsUndefined() then
+					fd.type.type.oclIsTypeOf(MM!ClassDeclaration)
+				else
+					false
+				endif
+			else
+				false
+			endif) then
+			if not fd.type.type.package().oclIsUndefined() then
+				fd.type.type.package().rootPackage().name.indexOf('java') < 0 and
+				if not fd.abstractTypeDeclaration.oclIsUndefined() then 
+					fd.abstractTypeDeclaration.oclIsTypeOf(MM!ClassDeclaration) and 
+						if not fd.abstractTypeDeclaration.package.oclIsUndefined() then fd.abstractTypeDeclaration.package.rootPackage().name.indexOf('java') < 0 else false endif
+				else false endif
+			else
+				false
+			endif
+		else
+			false
+		endif
+		)
+	to
+		e: MM1!Edge (
+			source <- fd.abstractTypeDeclaration, -- class declaration that contains the field declaration
+			target <- fd.type.type -- class declaration where the field declaration points to (type of the field declaration)
+		)
+}

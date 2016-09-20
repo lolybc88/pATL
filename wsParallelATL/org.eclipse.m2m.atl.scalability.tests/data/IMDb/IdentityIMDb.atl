@@ -1,0 +1,72 @@
+-- @atlcompiler atlParallel
+-- @path MM=/IMDb_EcoreModProj/model/movies.ecore
+-- @path MM1=/IMDb_EcoreModProj/model/movies.ecore
+
+module FindCouplesIMDb;
+create OUT : MM1 from IN : MM;
+
+rule movie {
+	from
+		m1 : MM!Movie
+	to
+		m2 : MM1!Movie (
+			title <- m1.title,
+			rating <- m1.rating,
+			type <- m1.type,
+			year <- m1.year,
+			persons <- m1.persons
+		)
+}
+
+rule actor {
+	from
+		p1 : MM!Actor
+	to
+		p2 : MM1!Actor (
+			name <- p1.name,
+			movies <- p1.movies
+		)
+}
+
+rule actress {
+	from
+		p1 : MM!Actress
+	to
+		p2 : MM1!Actress (
+			name <- p1.name,
+			movies <- p1.movies
+		)
+}
+
+rule group {
+	from
+		g1 : MM!Group
+	to 
+		g2 : MM1!Group (
+			avgRating <- g1.avgRating,
+			commonMovies <- g1.commonMovies
+		)
+}
+
+rule clique {
+	from
+		c1 : MM!Clique
+	to 
+		c2 : MM1!Clique (
+			avgRating <- c1.avgRating,
+			commonMovies <- c1.commonMovies,
+			persons <- c1.persons
+		)
+}
+
+rule couple {
+	from
+		c1 : MM!Couple
+	to 
+		c2 : MM1!Couple (
+			avgRating <- c1.avgRating,
+			commonMovies <- c1.commonMovies,
+			p1 <- c1.p1,
+			p2 <- c1.p2
+		)
+}

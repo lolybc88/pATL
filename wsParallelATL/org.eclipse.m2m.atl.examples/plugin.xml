@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.2"?>
+<plugin>
+   <extension
+         point="org.eclipse.ui.newWizards">
+      <category
+            id="org.eclipse.m2m.atl.examples.category"
+            name="ATL"
+            parentCategory="org.eclipse.ui.Examples">
+      </category>
+      <wizard
+            canFinishEarly="true"
+            category="org.eclipse.ui.Examples/org.eclipse.m2m.atl.examples.category"
+            class="org.eclipse.m2m.atl.examples.Public2PrivateExampleWizard"
+            hasPages="false"
+            id="org.eclipse.m2m.atl.examples.public2private"
+            name="Public to private Example"
+            icon="icons/atl_example.gif"
+            project="true">
+         <description>
+            Creates plug-in projects defining an ATL transformation which privatizes public fields in an UML model and generate getters and setters
+         </description>
+      </wizard>
+      <!--
+      <wizard
+            canFinishEarly="true"
+            category="org.eclipse.ui.Examples/org.eclipse.m2m.atl.examples.category"
+            class="org.eclipse.m2m.atl.examples.Public2PrivateCLExampleWizard"
+            hasPages="false"
+            icon="icons/atl_example.gif"
+            id="org.eclipse.m2m.atl.examples.public2private"
+            name="Public to private (command line)"
+            project="true">
+         <description>
+            Creates a command line tool launching the public2private example.
+         </description>
+      </wizard>
+      -->
+   </extension>
+</plugin>

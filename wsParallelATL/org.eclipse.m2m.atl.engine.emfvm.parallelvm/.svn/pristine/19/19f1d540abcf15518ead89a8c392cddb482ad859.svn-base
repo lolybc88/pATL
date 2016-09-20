@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Parallel
+Bundle-SymbolicName: org.eclipse.m2m.atl.engine.emfvm.parallelvm;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Require-Bundle: org.eclipse.ui,
+ org.eclipse.core.runtime,
+ org.eclipse.m2m.atl.engine.emfvm;bundle-version="3.4.0"
+Bundle-ActivationPolicy: lazy
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+Export-Package: org.eclipse.m2m.atl.engine.emfvm.parallelvm,
+ org.eclipse.m2m.atl.engine.emfvm.parallelvm.launch,
+ org.eclipse.m2m.atl.engine.emfvm.parallelvm.lib
